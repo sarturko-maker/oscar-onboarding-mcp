@@ -1,9 +1,9 @@
 {
   "name": "oscar-onboarding-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "First-launch onboarding interview server for Oscar GC. One tool: finalize_profile. Writes the user profile JSON to ~/.config/oscar/profile.json atomically.",
+  "description": "First-launch onboarding interview server for Oscar GC. Two tools: finalize_profile (writes profile v2 to ~/.config/oscar/profile.json atomically); list_area_questions (reads per-plugin onboarding-questions.json from the bundled in-house-legal skill library).",
   "license": "Apache-2.0",
   "author": "s-arturko",
   "engines": {
