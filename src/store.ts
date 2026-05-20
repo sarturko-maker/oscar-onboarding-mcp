@@ -5,8 +5,10 @@ import {
   ProfileSchema,
   ProfileSchemaV1,
   ProfileSchemaV2,
+  ProfileSchemaV3,
   migrateV1ToV2,
   migrateV2ToV3,
+  migrateV3ToV4,
 } from "./schema.js";
 
 export class ProfileStore {
@@ -29,16 +31,20 @@ export class ProfileStore {
       throw err;
     }
     const parsed = JSON.parse(raw);
-    const v3 = ProfileSchema.safeParse(parsed);
+    const v4 = ProfileSchema.safeParse(parsed);
+    if (v4.success) {
+      return v4.data;
+    }
+    const v3 = ProfileSchemaV3.safeParse(parsed);
     if (v3.success) {
-      return v3.data;
+      return migrateV3ToV4(v3.data);
     }
     const v2 = ProfileSchemaV2.safeParse(parsed);
     if (v2.success) {
-      return migrateV2ToV3(v2.data);
+      return migrateV3ToV4(migrateV2ToV3(v2.data));
     }
     const v1 = ProfileSchemaV1.parse(parsed);
-    return migrateV2ToV3(migrateV1ToV2(v1));
+    return migrateV3ToV4(migrateV2ToV3(migrateV1ToV2(v1)));
   }
 
   private async writeAtomic(profile: Profile): Promise<void> {

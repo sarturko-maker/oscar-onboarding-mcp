@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const SizeBandSchema = z.enum([
   "1-50",
@@ -23,7 +23,40 @@ export const PracticeAreaSchemaV2 = PracticeAreaSchemaV1.extend({
   area_profile: z.record(z.string(), z.string()).nullable().default(null),
 });
 
-export const PracticeAreaSchema = PracticeAreaSchemaV2;
+// Sprint 20 (ADR-067): per-area overrides from Forge. M0 introduces the
+// schema; renderer-side recipe builders consume description_override; later
+// sprints consume the rest. All fields optional so absent reads as
+// undefined and round-trips losslessly.
+export const SkillScopeModeSchema = z.enum(["all", "allow", "deny"]);
+
+export const AreaOverridesSchema = z.object({
+  description_override: z.string().optional(),
+  panel_sections: z.array(z.string()).optional(),
+  enabled_skills: z
+    .object({
+      mode: SkillScopeModeSchema,
+      slugs: z.array(z.string()),
+    })
+    .optional(),
+  enabled_mcps: z
+    .object({
+      mode: SkillScopeModeSchema,
+      ids: z.array(z.string()),
+    })
+    .optional(),
+  playbooks: z
+    .object({
+      always_on: z.array(z.string()),
+      on_demand: z.array(z.string()),
+    })
+    .optional(),
+});
+
+export const PracticeAreaSchemaV4 = PracticeAreaSchemaV2.extend({
+  area_overrides: AreaOverridesSchema.optional(),
+});
+
+export const PracticeAreaSchema = PracticeAreaSchemaV4;
 
 export const UserSchema = z.object({
   name: z.string().nullable(),
@@ -121,6 +154,17 @@ export const ProfileSchemaV2 = z.object({
   provider: ProviderSchema,
 });
 
+export const ProfileSchemaV3 = z.object({
+  schema_version: z.literal(3),
+  completed_at: z.string().min(1),
+  user: UserSchema,
+  corporate: CorporateSchema,
+  company_context: CompanyContextSchema,
+  practice_areas: z.array(PracticeAreaSchemaV2).min(1),
+  provider: ProviderSchema,
+});
+
+// Sprint 20 (ADR-068): V4 adds per-area area_overrides via PracticeAreaSchemaV4.
 export const ProfileSchema = z.object({
   schema_version: z.literal(SCHEMA_VERSION),
   completed_at: z.string().min(1),
@@ -134,8 +178,10 @@ export const ProfileSchema = z.object({
 export type Profile = z.infer<typeof ProfileSchema>;
 export type ProfileV1 = z.infer<typeof ProfileSchemaV1>;
 export type ProfileV2 = z.infer<typeof ProfileSchemaV2>;
+export type ProfileV3 = z.infer<typeof ProfileSchemaV3>;
 export type PracticeArea = z.infer<typeof PracticeAreaSchema>;
 export type CompanyContext = z.infer<typeof CompanyContextSchema>;
+export type AreaOverrides = z.infer<typeof AreaOverridesSchema>;
 
 export function stubCompanyContext(): CompanyContext {
   return {
@@ -169,10 +215,19 @@ export function migrateV1ToV2(v1: ProfileV1): ProfileV2 {
   };
 }
 
-export function migrateV2ToV3(v2: ProfileV2): Profile {
+export function migrateV2ToV3(v2: ProfileV2): ProfileV3 {
   return {
     ...v2,
-    schema_version: SCHEMA_VERSION,
+    schema_version: 3,
     company_context: stubCompanyContext(),
+  };
+}
+
+// Sprint 20 (ADR-068): V3 → V4 bumps schema_version; absent area_overrides
+// stays undefined and parses on round-trip.
+export function migrateV3ToV4(v3: ProfileV3): Profile {
+  return {
+    ...v3,
+    schema_version: SCHEMA_VERSION,
   };
 }

@@ -33,9 +33,10 @@ if (names.join(",") !== "finalize_profile,list_area_questions") {
   process.exit(1);
 }
 
-// finalize_profile: v3 schema, with per-area area_profile + company_context populated
+// finalize_profile: v4 schema, with per-area area_profile + company_context populated
+// + area_overrides on one area (Sprint 20 ADR-067 round-trip check)
 const sampleProfile = {
-  schema_version: 3,
+  schema_version: 4,
   completed_at: new Date().toISOString(),
   user: {
     name: "Smoke Test",
@@ -86,6 +87,10 @@ const sampleProfile = {
       area_profile: {
         "commercial-side": "purchasing",
         "deal-breaker": "no indemnity caps under 12 months ARR",
+      },
+      area_overrides: {
+        description_override: "Tom's purchasing-side commercial lab.",
+        enabled_mcps: { mode: "allow", ids: ["redline", "google_drive"] },
       },
     },
     {
@@ -153,11 +158,15 @@ if (!existsSync(profilePath)) {
 
 const onDisk = JSON.parse(readFileSync(profilePath, "utf8"));
 if (
-  onDisk.schema_version !== 3 ||
+  onDisk.schema_version !== 4 ||
   onDisk.user.role !== "general-counsel" ||
   onDisk.practice_areas.length !== 2 ||
   onDisk.practice_areas[0].area_profile?.["commercial-side"] !== "purchasing" ||
+  onDisk.practice_areas[0].area_overrides?.description_override !==
+    "Tom's purchasing-side commercial lab." ||
+  onDisk.practice_areas[0].area_overrides?.enabled_mcps?.mode !== "allow" ||
   onDisk.practice_areas[1].area_profile !== null ||
+  onDisk.practice_areas[1].area_overrides !== undefined ||
   onDisk.company_context?.regulatory_baseline?.captured_via !== "hypothesis-confirm" ||
   onDisk.company_context?.regulatory_baseline?.frameworks?.length !== 2 ||
   onDisk.company_context?.geography?.operating_jurisdictions?.length !== 2
@@ -197,13 +206,67 @@ const legacyStore = new ProfileStore(v2OnlyPath);
 const migrated = await legacyStore.read();
 if (
   !migrated ||
-  migrated.schema_version !== 3 ||
+  migrated.schema_version !== 4 ||
   migrated.company_context.regulatory_baseline.captured_via !== "needs-re-intake" ||
   migrated.company_context.industry.sector !== null ||
-  migrated.practice_areas.length !== 1
+  migrated.practice_areas.length !== 1 ||
+  migrated.practice_areas[0].area_overrides !== undefined
 ) {
-  console.error("FAIL: v2→v3 read-time migration shape mismatched");
+  console.error("FAIL: v2→v4 read-time migration shape mismatched");
   console.error(JSON.stringify(migrated, null, 2));
+  process.exit(1);
+}
+
+// v3→v4 read-time migration: write a v3 file (no area_overrides) and check that
+// it reads as v4 cleanly (Sprint 20 ADR-068).
+const v3OnlyPath = join(tmp, "profile-v3.json");
+writeFileSync(
+  v3OnlyPath,
+  JSON.stringify({
+    schema_version: 3,
+    completed_at: "2026-05-19T12:00:00Z",
+    user: { name: "V3 user", role: "counsel", role_label: "Counsel" },
+    corporate: { name: null, industry: null, size_band: null },
+    company_context: {
+      industry: { sector: null, sub_sector: null, business_model: null },
+      geography: {
+        hq_jurisdiction: null,
+        operating_jurisdictions: [],
+        customer_jurisdictions: null,
+        employee_jurisdictions: null,
+      },
+      regulatory_baseline: { frameworks: [], captured_via: "needs-re-intake" },
+      recurring_matters: { top_shapes: [] },
+      stakeholders: {
+        reports_to: null,
+        key_business_partners: [],
+        escalation_threshold_label: null,
+      },
+      risk_appetite: null,
+      open_notes: null,
+    },
+    practice_areas: [
+      {
+        id: "commercial",
+        name: "Commercial",
+        body: "x",
+        source: "default",
+        area_profile: null,
+      },
+    ],
+    provider: { kind: "minimax", model: "MiniMax-M2.5" },
+  }),
+  "utf8",
+);
+const v3Store = new ProfileStore(v3OnlyPath);
+const v3Migrated = await v3Store.read();
+if (
+  !v3Migrated ||
+  v3Migrated.schema_version !== 4 ||
+  v3Migrated.practice_areas[0].area_overrides !== undefined
+) {
+  console.error("FAIL: v3→v4 read-time migration shape mismatched");
+  console.error(JSON.stringify(v3Migrated, null, 2));
   process.exit(1);
 }
 
